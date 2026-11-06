@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Lil Blobs</string>
-    <string name="hint">DRAG · SQUISH · HOLD TO POP</string>
+    <string name="hint">TILT · DRAG · TWIST · HOLD TO POP</string>
 </resources>

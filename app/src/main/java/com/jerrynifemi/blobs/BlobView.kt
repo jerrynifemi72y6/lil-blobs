@@ -3,6 +3,10 @@ package com.jerrynifemi.blobs
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
@@ -12,9 +16,12 @@ import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
@@ -40,6 +47,7 @@ class BlobView @JvmOverloads constructor(
         var sy: Float = 1f,
         var svx: Float = 0f,
         var svy: Float = 0f,
+        var phase: Float = 0f,
         var life: Float = 1f,
         var particle: Boolean = false,
         var spawn: Float = 1f
@@ -55,7 +63,58 @@ class BlobView @JvmOverloads constructor(
     var onSpawn: ((Float) -> Unit)? = null
     var onBounce: ((Float) -> Unit)? = null
 
+    // ------------------------------------------------------------- gyro tilt
+
+    private val sensorManager: SensorManager? =
+        context.getSystemService(Context.SENSOR_SERVICE) as SensorManager?
+
+    private var tiltX = 0f
+    private var tiltY = 0f
+    private var spin = 0f
+    private var clock = 0f
+    private var lastShoveAt = 0L
+
+    private val sensorListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            when (event.sensor.type) {
+                Sensor.TYPE_ACCELEROMETER -> {
+                    // portrait: +x is screen right, +y is screen down
+                    tiltX = (-event.values[0] / 9.81f).coerceIn(-1.3f, 1.3f)
+                    tiltY = (event.values[1] / 9.81f).coerceIn(-1.3f, 1.3f)
+                }
+                Sensor.TYPE_GYROSCOPE -> {
+                    spin = spin * 0.86f + event.values[2] * 0.14f
+                    if (hypot(event.values[0], event.values[1]) > 4.2f) shove()
+                }
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
+
+    private fun startSensors() {
+        val sm = sensorManager ?: return
+        sm.registerListener(sensorListener, sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_GAME)
+        sm.registerListener(sensorListener, sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE), SensorManager.SENSOR_DELAY_GAME)
+    }
+
+    private fun stopSensors() {
+        sensorManager?.unregisterListener(sensorListener)
+    }
+
+    /** A quick twist of the wrist knocks the whole bowl around. */
+    private fun shove() {
+        val now = System.currentTimeMillis()
+        if (now - lastShoveAt < 600) return
+        lastShoveAt = now
+        wobbleAll()
+        playSound(2)
+    }
+
     private val density = resources.displayMetrics.density
+    private val GRAVITY = 620f
+    private var lastTapAt = 0L
+    private var lastTapBlob: Blob? = null
     private val palette = intArrayOf(
         Color.parseColor("#FF9E80"),
         Color.parseColor("#7FE3C0"),
@@ -103,12 +162,14 @@ class BlobView @JvmOverloads constructor(
         super.onAttachedToWindow()
         running = true
         lastFrameNanos = 0L
+        startSensors()
         Choreographer.getInstance().postFrameCallback(frame)
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         running = false
+        stopSensors()
         Choreographer.getInstance().removeFrameCallback(frame)
         backdrop?.recycle()
         backdrop = null
@@ -175,16 +236,36 @@ class BlobView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
 
+        clock += dt
+        spin *= 0.985f
+        if (abs(spin) > 0.2f) {
+            val cx = w / 2f
+            val cy = h / 2f
+            for (b in blobs) {
+                val dx = b.x - cx
+                val dy = b.y - cy
+                val len = max(1f, hypot(dx, dy))
+                b.vx += (-dy / len) * spin * 240f * dt
+                b.vy += (dx / len) * spin * 240f * dt
+            }
+        }
+
         val move = blobs.toMutableList()
         for (b in move) {
             b.spawn = min(1f, b.spawn + dt * 3.2f)
             val target = dragged
             if (target === b) {
-                b.vx = (touchX - b.x) * 20f
-                b.vy = (touchY - b.y) * 20f
+                // softer pull, so the blob lags the finger and stretches
+                b.vx = (touchX - b.x) * 9f
+                b.vy = (touchY - b.y) * 9f
             } else {
                 b.vx *= 0.991f
                 b.vy *= 0.991f
+                b.vx += tiltX * GRAVITY * dt
+                b.vy += tiltY * GRAVITY * dt
+                // slow convection: a settled bowl should never look frozen
+                b.vx += sin((clock * 0.6f + b.phase).toDouble()).toFloat() * 42f * dt
+                b.vy += cos((clock * 0.5f + b.phase).toDouble()).toFloat() * 42f * dt
             }
             b.x += b.vx * dt
             b.y += b.vy * dt
@@ -213,7 +294,7 @@ class BlobView @JvmOverloads constructor(
         }
 
         // blob against blob
-        for (i in blobs.indices) {
+        mergeLoop@ for (i in blobs.indices) {
             for (j in i + 1 until blobs.size) {
                 val a = blobs[i]
                 val b = blobs[j]
@@ -223,6 +304,11 @@ class BlobView @JvmOverloads constructor(
                 val dist = hypot(dx, dy)
                 val minDist = (a.r * max(a.sx, a.sy)) + (b.r * max(b.sx, b.sy))
                 if (dist > 0.01f && dist < minDist) {
+                    val held = dragged
+                    if (held != null && (a === held || b === held) && dist < minDist * 0.55f) {
+                        mergeInto(if (a === held) a else b, if (a === held) b else a)
+                        break@mergeLoop
+                    }
                     val nx = dx / dist
                     val ny = dy / dist
                     val push = (minDist - dist) * 0.5f
@@ -258,6 +344,49 @@ class BlobView @JvmOverloads constructor(
             p.r *= 0.995f
             if (p.life <= 0f) it.remove()
         }
+    }
+
+    /** Double tap pinches one blob into two children that fly apart. */
+    private fun split(b: Blob) {
+        val half = sqrt(b.r * b.r / 2f).coerceAtLeast(dp(18f))
+        val angle = Random.nextFloat() * Math.PI.toFloat() * 2f
+        val dx = cos(angle) * half
+        val dy = sin(angle) * half
+        b.r = half
+        b.vx = -cos(angle) * 340f
+        b.vy = -sin(angle) * 340f
+        b.sx = 1.15f
+        b.sy = 0.88f
+        if (blobs.size < 9) {
+            blobs.add(
+                Blob(
+                    x = b.x + dx,
+                    y = b.y + dy,
+                    vx = cos(angle) * 340f,
+                    vy = sin(angle) * 340f,
+                    r = half,
+                    color = b.color,
+                    phase = Random.nextFloat() * 6.28f
+                )
+            )
+        }
+        playSound(2)
+        onSpawn?.invoke(b.x / max(1f, width.toFloat()))
+    }
+
+    private fun mergeInto(keep: Blob, gone: Blob) {
+        val merged = sqrt(keep.r * keep.r + gone.r * gone.r).coerceAtMost(dp(115f))
+        keep.r = merged
+        keep.x = (keep.x + gone.x) / 2f
+        keep.y = (keep.y + gone.y) / 2f
+        keep.sx = 1.2f
+        keep.sy = 0.84f
+        keep.svx = 0f
+        keep.svy = 0f
+        blobs.remove(gone)
+        if (dragged === gone) dragged = keep
+        playSound(4)
+        onPop?.invoke()
     }
 
     private fun springScale(b: Blob, dt: Float) {
@@ -358,6 +487,15 @@ class BlobView @JvmOverloads constructor(
                 downAt = System.currentTimeMillis()
                 moved = false
                 val hit = findBlob(event.x, event.y)
+                val now = System.currentTimeMillis()
+                if (hit != null && hit === lastTapBlob && now - lastTapAt < 300L && hit.r > dp(30f)) {
+                    split(hit)
+                    lastTapAt = 0L
+                    lastTapBlob = null
+                    return true
+                }
+                lastTapAt = now
+                lastTapBlob = hit
                 dragged = hit
                 if (hit != null) {
                     hit.sx = 1.07f
@@ -450,11 +588,46 @@ class BlobView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val baked = backdrop
-        if (baked != null) canvas.drawBitmap(baked, 0f, 0f, null)
-        else canvas.drawColor(Color.parseColor("#FFF7F2"))
+        if (baked != null) {
+            // the backdrop drifts against the tilt, so the bowl feels deep
+            canvas.save()
+            canvas.translate(width / 2f - tiltX * dp(16f), height / 2f - tiltY * dp(12f))
+            canvas.scale(1.07f, 1.07f)
+            canvas.translate(-width / 2f, -height / 2f)
+            canvas.drawBitmap(baked, 0f, 0f, null)
+            canvas.restore()
+        } else {
+            canvas.drawColor(Color.parseColor("#FFF7F2"))
+        }
         for (b in blobs) drawBlob(canvas, b, 1f)
         for (p in particles) drawBlob(canvas, p, p.life.coerceIn(0f, 1f))
+        dragged?.let { drawNeck(canvas, it) }
     }
+
+    /** While you drag, a chain of shrinking glossy beads links blob to finger. */
+    private fun drawNeck(canvas: Canvas, b: Blob) {
+        val dx = touchX - b.x
+        val dy = touchY - b.y
+        val dist = hypot(dx, dy)
+        if (dist < b.r * 1.05f) return
+        val steps = 8
+        for (i in 1..steps) {
+            val t = i.toFloat() / steps
+            val x = b.x + dx * t
+            val y = b.y + dy * t
+            val r = (b.r * (1f - t) * 0.78f).coerceAtLeast(dp(4f) * (1f - t))
+            if (r < 0.6f) continue
+            neckPaint.shader = null
+            neckPaint.color = lighten(b.color, 0.18f + 0.3f * t)
+            neckPaint.alpha = (215 * (1f - t * 0.45f)).toInt()
+            canvas.drawCircle(x, y, r, neckPaint)
+        }
+        neckPaint.color = lighten(b.color, 0.55f)
+        neckPaint.alpha = 120
+        canvas.drawCircle(touchX, touchY, dp(10f), neckPaint)
+    }
+
+    private val neckPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private fun ensureShaders(b: Blob) {
         if (b.shaderR == b.r) return

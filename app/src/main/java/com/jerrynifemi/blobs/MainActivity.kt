@@ -1,23 +1,16 @@
 package com.jerrynifemi.blobs
 
 import android.app.Activity
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
-import kotlin.math.sqrt
 
-class MainActivity : Activity(), SensorEventListener {
+class MainActivity : Activity() {
 
     private lateinit var bowl: BlobView
-    private var sensorManager: SensorManager? = null
-    private var lastShakeAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,35 +53,7 @@ class MainActivity : Activity(), SensorEventListener {
                 .start()
         }, 5200)
 
-        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
     }
-
-    override fun onResume() {
-        super.onResume()
-        sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        sensorManager?.unregisterListener(this)
-    }
-
-    override fun onSensorChanged(event: SensorEvent) {
-        val gx = event.values[0]
-        val gy = event.values[1]
-        val gz = event.values[2]
-        val force = sqrt(gx * gx + gy * gy + gz * gz)
-        val now = System.currentTimeMillis()
-        if (force > 27f && now - lastShakeAt > 800) {
-            lastShakeAt = now
-            bowl.wobbleAll()
-            bowl.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-        }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     private fun lightStatusBar() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
