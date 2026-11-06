@@ -35,7 +35,7 @@ class MainActivity : Activity(), SensorEventListener {
 
         fab.setOnClickListener {
             val jitter = (Math.random() - 0.5).toFloat() * dp(160f)
-            bowl.addBlob(width / 2f + jitter, height * 0.32f)
+            bowl.addBlob(bowl.width / 2f + jitter, bowl.height * 0.32f)
         }
         fab.alpha = 0f
         fab.scaleX = 0.6f
