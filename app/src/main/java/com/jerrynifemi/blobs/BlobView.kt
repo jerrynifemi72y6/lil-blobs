@@ -99,10 +99,6 @@ class BlobView @JvmOverloads constructor(
         }
     }
 
-    init {
-        setLayerType(LAYER_TYPE_HARDWARE, null)
-    }
-
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         running = true
@@ -114,6 +110,8 @@ class BlobView @JvmOverloads constructor(
         super.onDetachedFromWindow()
         running = false
         Choreographer.getInstance().removeFrameCallback(frame)
+        backdrop?.recycle()
+        backdrop = null
     }
 
     /** Fill the bowl with a few blobs, dropping them in from above. */
@@ -424,21 +422,36 @@ class BlobView @JvmOverloads constructor(
             intArrayOf(Color.argb(170, 150, 226, 214), Color.argb(0, 150, 226, 214)),
             floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
         )
+        bakeBackdrop(w, h)
         if (blobs.isEmpty()) seed()
+    }
+
+    private var backdrop: android.graphics.Bitmap? = null
+
+    private fun bakeBackdrop(w: Int, h: Int) {
+        if (w <= 0 || h <= 0) return
+        backdrop?.recycle()
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        bgPaint.shader = bgShader
+        c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), bgPaint)
+        glowTop?.let {
+            bgPaint.shader = it
+            c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), bgPaint)
+        }
+        glowBottom?.let {
+            bgPaint.shader = it
+            c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), bgPaint)
+        }
+        bgPaint.shader = null
+        backdrop = bmp
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        bgPaint.shader = bgShader
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-        glowTop?.let {
-            bgPaint.shader = it
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-        }
-        glowBottom?.let {
-            bgPaint.shader = it
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-        }
+        val baked = backdrop
+        if (baked != null) canvas.drawBitmap(baked, 0f, 0f, null)
+        else canvas.drawColor(Color.parseColor("#FFF7F2"))
         for (b in blobs) drawBlob(canvas, b, 1f)
         for (p in particles) drawBlob(canvas, p, p.life.coerceIn(0f, 1f))
     }
