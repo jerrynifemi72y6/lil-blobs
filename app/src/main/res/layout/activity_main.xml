@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/lilRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.jerrynifemi.blobs.BlobView
+        android:id="@+id/bowl"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/hint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="52dp"
+        android:background="@drawable/bg_glass_pill"
+        android:elevation="6dp"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.16"
+        android:paddingLeft="20dp"
+        android:paddingTop="11dp"
+        android:paddingRight="20dp"
+        android:paddingBottom="11dp"
+        android:text="@string/hint"
+        android:textColor="@color/ink_soft"
+        android:textSize="11sp" />
+
+    <FrameLayout
+        android:id="@+id/fabAdd"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginRight="24dp"
+        android:layout_marginBottom="34dp"
+        android:background="@drawable/bg_fab_add"
+        android:clickable="true"
+        android:elevation="10dp"
+        android:focusable="true">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:fontFamily="sans-serif-light"
+            android:text="+"
+            android:textColor="#FFFFFF"
+            android:textSize="34sp" />
+    </FrameLayout>
+</FrameLayout>

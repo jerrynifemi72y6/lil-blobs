@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="paper">#FFF7F2</color>
+    <color name="ink">#2E2A3B</color>
+    <color name="ink_soft">#5B5470</color>
+    <color name="peach">#FF9E80</color>
+    <color name="mint">#7FE3C0</color>
+    <color name="lilac">#C0A6FF</color>
+</resources>
